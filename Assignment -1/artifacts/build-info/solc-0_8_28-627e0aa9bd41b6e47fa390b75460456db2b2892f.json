@@ -1,0 +1,39 @@
+{
+  "_format": "hh3-sol-build-info-1",
+  "id": "solc-0_8_28-627e0aa9bd41b6e47fa390b75460456db2b2892f",
+  "solcVersion": "0.8.28",
+  "solcLongVersion": "0.8.28+commit.7893614a",
+  "userSourceNameMap": {
+    "contracts/QuickStarter.sol": "project/contracts/QuickStarter.sol"
+  },
+  "input": {
+    "language": "Solidity",
+    "settings": {
+      "evmVersion": "cancun",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "outputSelection": {
+        "*": {
+          "": [
+            "ast"
+          ],
+          "*": [
+            "abi",
+            "evm.bytecode",
+            "evm.deployedBytecode",
+            "evm.methodIdentifiers",
+            "metadata"
+          ]
+        }
+      },
+      "remappings": []
+    },
+    "sources": {
+      "project/contracts/QuickStarter.sol": {
+        "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.0;\n\n/**\n * @title QuickStarter\n * @notice A mini crowdfunding smart contract where users can create campaigns\n *         and contribute ETH toward funding goals.\n * @dev Uses struct, mapping, modifier, require, and events as specified.\n *      Implements checks-effects-interactions pattern for reentrancy protection.\n */\ncontract QuickStarter {\n    // -----------------------------------------------------------------------\n    //  State\n    // -----------------------------------------------------------------------\n\n    /// @notice Auto-incrementing campaign ID (starts at 1).\n    uint256 public nextCampaignId = 1;\n\n    /// @notice Campaign data structure.\n    struct Campaign {\n        uint256 id;\n        string title;\n        address payable creator;\n        uint256 goal;\n        uint256 pledged;\n        uint256 deadline;\n        bool open;\n    }\n\n    /// @notice Mapping of campaign ID to Campaign struct.\n    mapping(uint256 => Campaign) public campaigns;\n\n    /// @notice Nested mapping: campaignId => contributor => amount contributed.\n    mapping(uint256 => mapping(address => uint256)) public contributions;\n\n    // -----------------------------------------------------------------------\n    //  Events\n    // -----------------------------------------------------------------------\n\n    event CampaignCreated(\n        uint256 indexed id,\n        address indexed creator,\n        string title,\n        uint256 goal,\n        uint256 deadline\n    );\n\n    event ContributionReceived(\n        uint256 indexed id,\n        address indexed contributor,\n        uint256 amount\n    );\n\n    event GoalReached(uint256 indexed id, uint256 totalPledged);\n\n    event FundsWithdrawn(uint256 indexed id, address indexed creator, uint256 amount);\n\n    // -----------------------------------------------------------------------\n    //  Modifiers\n    // -----------------------------------------------------------------------\n\n    /// @notice Ensures the campaign with the given ID exists.\n    modifier campaignExists(uint256 _id) {\n        require(campaigns[_id].id != 0, \"Campaign does not exist\");\n        _;\n    }\n\n    /// @notice Ensures the campaign is still open and before its deadline.\n    modifier onlyWhileOpen(uint256 _id) {\n        require(campaigns[_id].open, \"Campaign is closed\");\n        require(block.timestamp < campaigns[_id].deadline, \"Campaign deadline has passed\");\n        _;\n    }\n\n    /// @notice Restricts access to the campaign creator only.\n    modifier onlyCreator(uint256 _id) {\n        require(msg.sender == campaigns[_id].creator, \"Only the campaign creator can call this\");\n        _;\n    }\n\n    // -----------------------------------------------------------------------\n    //  Core Functions\n    // -----------------------------------------------------------------------\n\n    /**\n     * @notice Creates a new crowdfunding campaign.\n     * @param _title    The title / name of the campaign.\n     * @param _goalInWei The funding goal in Wei.\n     * @param _deadline  Unix timestamp after which contributions are rejected.\n     * @return id The auto-incremented campaign ID.\n     */\n    function createCampaign(\n        string calldata _title,\n        uint256 _goalInWei,\n        uint256 _deadline\n    ) external returns (uint256) {\n        require(_goalInWei > 0, \"Goal must be greater than zero\");\n        require(_deadline > block.timestamp, \"Deadline must be in the future\");\n\n        uint256 id = nextCampaignId++;\n\n        campaigns[id] = Campaign({\n            id: id,\n            title: _title,\n            creator: payable(msg.sender),\n            goal: _goalInWei,\n            pledged: 0,\n            deadline: _deadline,\n            open: true\n        });\n\n        emit CampaignCreated(id, msg.sender, _title, _goalInWei, _deadline);\n\n        return id;\n    }\n\n    /**\n     * @notice Contribute ETH to an active campaign.\n     * @param _campaignId The ID of the campaign to fund.\n     */\n    function contribute(uint256 _campaignId)\n        external\n        payable\n        campaignExists(_campaignId)\n        onlyWhileOpen(_campaignId)\n    {\n        require(msg.value > 0, \"Contribution must be greater than zero\");\n\n        // Effects\n        campaigns[_campaignId].pledged += msg.value;\n        contributions[_campaignId][msg.sender] += msg.value;\n\n        emit ContributionReceived(_campaignId, msg.sender, msg.value);\n\n        // Emit GoalReached once the goal is met\n        if (campaigns[_campaignId].pledged >= campaigns[_campaignId].goal) {\n            emit GoalReached(_campaignId, campaigns[_campaignId].pledged);\n        }\n    }\n\n    // -----------------------------------------------------------------------\n    //  Withdraw (optional but included for completeness)\n    // -----------------------------------------------------------------------\n\n    /**\n     * @notice Allows the campaign creator to withdraw funds after the deadline,\n     *         only if the funding goal has been met.\n     * @dev    Uses checks-effects-interactions pattern to prevent reentrancy.\n     * @param _campaignId The ID of the campaign to withdraw from.\n     */\n    function withdraw(uint256 _campaignId)\n        external\n        campaignExists(_campaignId)\n        onlyCreator(_campaignId)\n    {\n        Campaign storage campaign = campaigns[_campaignId];\n\n        require(block.timestamp >= campaign.deadline, \"Campaign is still active\");\n        require(campaign.pledged >= campaign.goal, \"Funding goal not reached\");\n        require(campaign.open, \"Funds already withdrawn\");\n\n        uint256 amount = campaign.pledged;\n\n        // Effects — update state BEFORE external call (checks-effects-interactions)\n        campaign.open = false;\n\n        // Interaction — external call after state update\n        (bool success, ) = campaign.creator.call{value: amount}(\"\");\n        require(success, \"Transfer failed\");\n\n        emit FundsWithdrawn(_campaignId, campaign.creator, amount);\n    }\n}\n"
+      }
+    }
+  }
+}
